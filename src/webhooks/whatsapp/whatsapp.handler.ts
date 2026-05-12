@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { env } from '../../config/env.js';
 import { verifyMetaSignature } from './whatsapp.signature.js';
 import { parseWhatsAppWebhook } from './whatsapp.parser.js';
+import { isNewEvent } from './whatsapp.idempotency.js';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -13,6 +14,14 @@ interface VerificationQuery {
 
 // ── GET: Webhook Verification ────────────────────────────────
 
+/**
+ * Handle Meta's webhook verification challenge.
+ *
+ * Meta sends:
+ *   GET /webhook/whatsapp?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=<challenge>
+ *
+ * We must respond with the challenge value if the verify_token matches.
+ */
 export async function handleWebhookVerification(
   request: FastifyRequest<{ Querystring: VerificationQuery }>,
   reply: FastifyReply,
@@ -33,6 +42,16 @@ export async function handleWebhookVerification(
 
 // ── POST: Incoming Webhook Events ────────────────────────────
 
+/**
+ * Handle incoming webhook events from Meta.
+ *
+ * Flow:
+ *   1. Validate HMAC signature → 401 if invalid
+ *   2. Respond 200 immediately (Meta requires fast response)
+ *   3. Parse and normalize events
+ *   4. Check idempotency via Redis (skip duplicates)
+ *   5. Process new events
+ */
 export async function handleWebhookEvent(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -63,21 +82,37 @@ export async function handleWebhookEvent(
   // 2. Respond 200 immediately — Meta expects a fast response
   await reply.code(200).send('EVENT_RECEIVED');
 
-  // 3. Process the event asynchronously
+  // 3. Parse and normalize events
   try {
-    // We pass the parsed body to our Zod parser to flatten it
     const events = parseWhatsAppWebhook(request.body);
-    
+
     if (events.length === 0) {
       request.log.debug('No actionable WhatsApp events found in payload');
       return;
     }
 
-    request.log.info({ parsedEvents: events }, 'Normalized WhatsApp events');
+    // 4. Idempotency check — skip duplicates using Redis
+    const redis = request.server.redis;
 
-    // In the next commit, we will add Idempotency checks here 
-    // and store the events in PostgreSQL.
+    for (const event of events) {
+      const isNew = await isNewEvent(redis, event.messageId);
 
+      if (!isNew) {
+        request.log.info(
+          { messageId: event.messageId, type: event.type },
+          'Duplicate webhook event skipped (idempotency)',
+        );
+        continue;
+      }
+
+      // 5. Process the new event
+      request.log.info(
+        { event },
+        'Processing new WhatsApp event',
+      );
+
+      // TODO: In next commits, dispatch to sequence engine / store in DB
+    }
   } catch (err) {
     request.log.error({ err, body: request.body }, 'Error processing WhatsApp webhook');
   }

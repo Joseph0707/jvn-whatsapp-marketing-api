@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { env } from './config/env.js';
 import { buildLoggerConfig } from './shared/logger.js';
 import { whatsappRoutes } from './webhooks/whatsapp/whatsapp.routes.js';
+import redisPlugin from './plugins/redis.js';
 
 // ── Extend Fastify types to include rawBody on request ───
 declare module 'fastify' {
@@ -45,8 +46,8 @@ export async function buildApp() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
-  // ── Plugins will be registered here ────────────────────
-  // await app.register(redisPlugin);
+  // ── Plugins ────────────────────────────────────────────
+  await app.register(redisPlugin);
   // await app.register(postgresPlugin);
 
   // ── Routes ─────────────────────────────────────────────
