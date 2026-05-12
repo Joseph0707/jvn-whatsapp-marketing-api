@@ -1,0 +1,42 @@
+{
+  "name": "jvn-whatsapp-marketing-api",
+  "version": "1.0.0",
+  "description": "WhatsApp Marketing API multi-tenant — Webhooks, Sequences, Attribution ROI",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "lint": "eslint src/ tests/",
+    "lint:fix": "eslint src/ tests/ --fix",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy"
+  },
+  "keywords": ["whatsapp", "marketing", "fastify", "bullmq", "multi-tenant"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "fastify": "^5.3.3",
+    "@fastify/redis": "^7.1.0",
+    "bullmq": "^5.52.1",
+    "@prisma/client": "^6.9.0",
+    "zod": "^3.25.7",
+    "ioredis": "^5.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "prisma": "^6.9.0",
+    "vitest": "^3.2.1",
+    "@types/node": "^22.15.17",
+    "tsx": "^4.19.4",
+    "@typescript-eslint/eslint-plugin": "^8.33.0",
+    "@typescript-eslint/parser": "^8.33.0",
+    "eslint": "^9.27.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
