@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { env } from '../../config/env.js';
 import { verifyMetaSignature } from './whatsapp.signature.js';
+import { parseWhatsAppWebhook } from './whatsapp.parser.js';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -12,14 +13,6 @@ interface VerificationQuery {
 
 // ── GET: Webhook Verification ────────────────────────────────
 
-/**
- * Handle Meta's webhook verification challenge.
- *
- * Meta sends:
- *   GET /webhook/whatsapp?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=<challenge>
- *
- * We must respond with the challenge value if the verify_token matches.
- */
 export async function handleWebhookVerification(
   request: FastifyRequest<{ Querystring: VerificationQuery }>,
   reply: FastifyReply,
@@ -40,14 +33,6 @@ export async function handleWebhookVerification(
 
 // ── POST: Incoming Webhook Events ────────────────────────────
 
-/**
- * Handle incoming webhook events from Meta.
- *
- * Flow:
- *   1. Validate HMAC signature → 401 if invalid
- *   2. Respond 200 immediately (Meta requires fast response)
- *   3. Process the event asynchronously (parsing, idempotency, etc.)
- */
 export async function handleWebhookEvent(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -61,8 +46,6 @@ export async function handleWebhookEvent(
     return;
   }
 
-  // Get the raw body from our custom content type parser
-  // The body was parsed from buffer in server.ts addContentTypeParser
   const rawBody = request.rawBody as string | Buffer | undefined;
 
   if (!rawBody) {
@@ -81,10 +64,21 @@ export async function handleWebhookEvent(
   await reply.code(200).send('EVENT_RECEIVED');
 
   // 3. Process the event asynchronously
-  // Event parsing and processing will be added in the next commits.
-  // For now, just log the received event.
-  request.log.info(
-    { body: request.body },
-    'Webhook event received and acknowledged',
-  );
+  try {
+    // We pass the parsed body to our Zod parser to flatten it
+    const events = parseWhatsAppWebhook(request.body);
+    
+    if (events.length === 0) {
+      request.log.debug('No actionable WhatsApp events found in payload');
+      return;
+    }
+
+    request.log.info({ parsedEvents: events }, 'Normalized WhatsApp events');
+
+    // In the next commit, we will add Idempotency checks here 
+    // and store the events in PostgreSQL.
+
+  } catch (err) {
+    request.log.error({ err, body: request.body }, 'Error processing WhatsApp webhook');
+  }
 }
