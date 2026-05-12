@@ -1,0 +1,153 @@
+// ============================================================
+// JVN WhatsApp Marketing API — Prisma Schema
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Tenants ──────────────────────────────────────────────────
+model Tenant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  phoneNumberId String   @unique @map("phone_number_id")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  contacts          Contact[]
+  sequences         Sequence[]
+  scheduledMessages ScheduledMessage[]
+  conversions       Conversion[]
+  attributions      Attribution[]
+  webhookEvents     WebhookEvent[]
+
+  @@map("tenants")
+}
+
+// ── Contacts ─────────────────────────────────────────────────
+model Contact {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  phone        String
+  firstSeenAt  DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, phone])
+  @@index([tenantId, phone])
+  @@map("contacts")
+}
+
+// ── Sequences ────────────────────────────────────────────────
+model Sequence {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  name         String
+  triggerEvent String   @default("free_window_opened") @map("trigger_event")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  steps  SequenceStep[]
+
+  @@index([tenantId, triggerEvent, isActive])
+  @@map("sequences")
+}
+
+// ── Sequence Steps ───────────────────────────────────────────
+model SequenceStep {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequenceId   String   @map("sequence_id") @db.Uuid
+  stepOrder    Int      @map("step_order")
+  templateId   String   @map("template_id")
+  delayMinutes Int      @default(0) @map("delay_minutes")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  sequence          Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  scheduledMessages ScheduledMessage[]
+  @@index([sequenceId, stepOrder])
+  @@map("sequence_steps")
+}
+
+// ── Scheduled Messages ──────────────────────────────────────
+model ScheduledMessage {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  contactPhone    String    @map("contact_phone")
+  stepId          String    @map("step_id") @db.Uuid
+  status          String    @default("pending")
+  scheduledAt     DateTime  @map("scheduled_at") @db.Timestamptz
+  windowExpiresAt DateTime  @map("window_expires_at") @db.Timestamptz
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  step        SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  attributions Attribution[]
+
+  @@index([tenantId, contactPhone, status])
+  @@index([status, scheduledAt])
+  @@map("scheduled_messages")
+}
+
+// ── Conversions ─────────────────────────────────────────────
+model Conversion {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  contactPhone String   @map("contact_phone")
+  orderId      String   @map("order_id")
+  orderAmount  Int      @default(0) @map("order_amount")
+  convertedAt  DateTime @default(now()) @map("converted_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attribution Attribution?
+
+  @@unique([tenantId, orderId])
+  @@index([tenantId, convertedAt])
+  @@map("conversions")
+}
+
+// ── Attributions ────────────────────────────────────────────
+model Attribution {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversionId String   @unique @map("conversion_id") @db.Uuid
+  messageId    String   @map("message_id") @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  source       String   @default("message")
+  attributedAt DateTime @default(now()) @map("attributed_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  conversion Conversion       @relation(fields: [conversionId], references: [id], onDelete: Cascade)
+  message    ScheduledMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([tenantId])
+  @@map("attributions")
+}
+
+// ── Webhook Events Log ──────────────────────────────────────
+model WebhookEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId     String   @unique @map("event_id")
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  eventType   String   @map("event_type")
+  payload     Json
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([eventId])
+  @@map("webhook_events")
+}

@@ -31,3 +31,5 @@ coverage/
 
 # Docker volumes
 pgdata/
+
+/src/generated/prisma
