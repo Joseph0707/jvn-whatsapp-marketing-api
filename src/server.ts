@@ -1,6 +1,14 @@
 import Fastify from 'fastify';
 import { env } from './config/env.js';
 import { buildLoggerConfig } from './shared/logger.js';
+import { whatsappRoutes } from './webhooks/whatsapp/whatsapp.routes.js';
+
+// ── Extend Fastify types to include rawBody on request ───
+declare module 'fastify' {
+  interface FastifyRequest {
+    rawBody?: Buffer;
+  }
+}
 
 /**
  * Build and configure the Fastify application instance.
@@ -11,14 +19,20 @@ export async function buildApp() {
     logger: buildLoggerConfig(env.NODE_ENV),
   });
 
-  // ── Raw body access for HMAC signature validation ──
+  // ── Raw body decorator ─────────────────────────────────
+  // Needed for HMAC signature verification on webhook POST
+  app.decorateRequest('rawBody', undefined);
+
+  // ── Custom JSON parser that preserves raw body ─────────
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'buffer' },
-    (_req, body, done) => {
+    (req, body, done) => {
       try {
-        const rawBody = body as Buffer;
-        const parsed: unknown = JSON.parse(rawBody.toString());
+        const rawBuffer = body as Buffer;
+        // Store raw body on request for HMAC verification
+        req.rawBody = rawBuffer;
+        const parsed: unknown = JSON.parse(rawBuffer.toString());
         done(null, parsed);
       } catch (err) {
         done(err as Error, undefined);
@@ -26,17 +40,17 @@ export async function buildApp() {
     },
   );
 
-  // ── Health check ───────────────────────────────────
+  // ── Health check ───────────────────────────────────────
   app.get('/health', async (_request, _reply) => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
-  // ── Plugins will be registered here ────────────────
+  // ── Plugins will be registered here ────────────────────
   // await app.register(redisPlugin);
   // await app.register(postgresPlugin);
 
-  // ── Routes will be registered here ─────────────────
-  // await app.register(whatsappRoutes, { prefix: '/webhook' });
+  // ── Routes ─────────────────────────────────────────────
+  await app.register(whatsappRoutes, { prefix: '/webhook' });
   // await app.register(conversionRoutes, { prefix: '/webhook' });
   // await app.register(campaignRoutes, { prefix: '/campaigns' });
 
